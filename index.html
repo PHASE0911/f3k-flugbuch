@@ -701,6 +701,27 @@ if(typeof EXAMPLES!=='undefined' && EXAMPLES.length){
 try{ history.replaceState({v:'home',sel:0},''); }catch(e){}
 initDevice();
 showView();
+
+// ---------- Lokale Datei per Shortcuts-Kurzbefehl (Base64 im URL-Fragment) ----------
+// Erlaubt es der iOS-Kurzbefehle-App, den Inhalt einer lokalen CSV direkt mitzugeben,
+// z.B. https://.../#csv=<base64>&name=<dateiname> - ohne den (in Quick Look blockierten)
+// Datei-Auswahl-Dialog zu benoetigen.
+(function(){
+  const h = location.hash;
+  if(!h || h.length<2) return;
+  const params = new URLSearchParams(h.slice(1));
+  const b64 = params.get('csv');
+  if(!b64) return;
+  try{
+    const bin = atob(b64.replace(/\s/g,''));
+    const bytes = new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
+    const text = new TextDecoder('utf-8').decode(bytes);
+    const name = params.get('name') || 'Lokale Datei';
+    load(text, decodeURIComponent(name));
+  }catch(e){ const e2=$('err'); e2.hidden=false; e2.textContent='Konnte die per Kurzbefehl übergebene Datei nicht lesen.'; }
+  try{ history.replaceState({v:S.view,sel:S.sel},'',location.pathname+location.search); }catch(e){}
+})();
 </script>
 </body>
 </html>
