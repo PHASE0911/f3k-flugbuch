@@ -277,6 +277,8 @@ function detectFlights(rows, altCh, o){
   let ring=[], ground=0, haveGround=false, inF=false, below=false, belowSince=0, lastT=0, lastAlt=0;
   let acc=null, clockMin=-1, havePrev=false, prevT=0, prevAlt=0;
   let haveTimer=false, running=false, lastTv=0, lastChange=0;
+  let belowGroundT=false, belowGroundSinceT=0;   // Hoehen-Sicherheitsnetz im Timer-Modus
+  const ALT_END_THR=0, ALT_END_HOLD=4000, ALT_END_MIN_PEAK=3;
   const out=[]; let resets=0;
   const push=(t,a)=>{ lastT=t; lastAlt=a; if(ring.length===160) ring.shift(); ring.push({t,a}); };
   const vsAt=(t,alt)=>{
@@ -309,12 +311,34 @@ function detectFlights(rows, altCh, o){
   const trackGround=alt=>{ const h=alt-ground; if(h<-5||Math.abs(h)<1.5) ground+=(h<-5)?h:0.05*h; };
   // Timer
   const endTimer=(tEnd,open)=>{
-    if(!running) return; running=false; inF=false;
+    if(!running) return; running=false; inF=false; belowGroundT=false;
     let hEnd=lastAlt-ground;
     for(let i=ring.length-1;i>=0;i--) if(ring[i].t<=tEnd){ hEnd=ring[i].a-ground; break; }
     store(tEnd,hEnd,!!open);
   };
-  const tick=t=>{ if(timerMode && running && t-lastChange>timerStop) endTimer(lastChange); };
+  // Der Ethos-Timerkanal kann laenger pausieren, ohne dass der Flug wirklich vorbei ist (z.B. FLT0007
+  // Flug 3/5: ~70s Luecke im Timerkanal mitten im Flug, waehrend die Hoehe die ganze Zeit weiterlief -
+  // vermutlich ein Sensor-/BLE-Haenger nur bei diesem einen Kanal). Darum nicht allein auf Timer-Stille
+  // abstellen: nur wenn AUCH die Hoehe seit timerStop nicht mehr aktualisiert wurde, gilt der Flug als
+  // wirklich beendet.
+  const tick=t=>{
+    if(!timerMode || !running) return;
+    if(t-lastChange<=timerStop) return;
+    if(havePrev && t-lastT<=timerStop) return;
+    endTimer(lastChange);
+  };
+  // Sicherheitsnetz: setzt Ethos den Timer nie zurueck (z.B. Geraet direkt nach der Landung
+  // ausgeschaltet, bevor der Reset-Frame kam - Muster in FLT0003..FLT0007: jeweils der letzte Flug der
+  // Session), beendet der Flug trotzdem sauber, sobald die Hoehe nach einem echten Gipfel wieder bei
+  // ALT_END_THR (0m) oder darunter ankommt und das haelt.
+  const checkEndAltInTimer=(t,alt)=>{
+    if(acc.maxH<ALT_END_MIN_PEAK || t<=acc.tPeak){ belowGroundT=false; return; }
+    const h=alt-ground;
+    if(h<=ALT_END_THR){
+      if(!belowGroundT){ belowGroundT=true; belowGroundSinceT=t; }
+      else if(t-belowGroundSinceT>=ALT_END_HOLD) endTimer(belowGroundSinceT);
+    } else belowGroundT=false;
+  };
   const feedTimer=(t,v)=>{
     tick(t);
     if(!haveTimer){ haveTimer=true; lastTv=0; }
@@ -334,7 +358,7 @@ function detectFlights(rows, altCh, o){
       // stillstand, schon selbst mitten im Steigflug (FLT0011: 29.9m statt ~0). Darum keine Ringsuche
       // mehr - Boden ist beim Timerstart immer 0, Ethos hat das schon erledigt.
       ground=0;
-      accBegin(t0,true); inF=true; running=true; lastChange=t; replay(t0);
+      accBegin(t0,true); inF=true; running=true; lastChange=t; belowGroundT=false; replay(t0);
     }
     lastTv=v;
   };
@@ -373,7 +397,7 @@ function detectFlights(rows, altCh, o){
     }
     havePrev=true; prevT=t; prevAlt=alt;
     push(t,alt);
-    if(timerMode){ if(inF) sample(t,alt); else trackGround(alt); return; }
+    if(timerMode){ if(inF){ sample(t,alt); checkEndAltInTimer(t,alt); } else trackGround(alt); return; }
     if(!inF){
       const h=alt-ground;
       if(h>startThr) beginAlt(); else { trackGround(alt); return; }
