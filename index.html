@@ -196,7 +196,7 @@ details.card summary{font-family:var(--font-d);font-weight:650;font-size:19px;cu
         <label>Höhen-Modus: Start ab (m) <input id="thrStart" type="number" inputmode="decimal" step="0.5" min="1" max="30" value="3"></label>
         <label>Höhen-Modus: Ende unter (m) <input id="thrEnd" type="number" inputmode="decimal" step="0.5" min="0.5" max="20" value="2"></label>
       </div>
-      <p class="note">Mit Flugtimer gilt: Der Flug läuft, solange der Ethos-Timer zählt, und endet, wenn er 2,5 s steht oder zurückgesetzt wird. Ohne Timer beginnt ein Flug, wenn die Höhe über den Boden steigt, und endet nach 4 s nahe am Boden oder nach 20 s praktisch ohne Höhenänderung. Die Abwurfhöhe ist der höchste Punkt in den ersten 15 s. Sprünge über 60 m/s gelten als Sensor-Reset. «Sink netto» ist der Höhenverlust vom Gipfel bis zur Landung pro Sekunde; Steigzeit zählt die Sekunden mit mehr als 0,15 m/s Steigen nach dem Gipfel.</p>
+      <p class="note">Mit Flugtimer gilt: Der Flug läuft, solange der Ethos-Timer zählt, und endet, wenn er 2,5 s steht oder zurückgesetzt wird. Ohne Timer beginnt ein Flug, wenn die Höhe über den Boden steigt, und endet nach 4 s nahe am Boden oder nach 20 s praktisch ohne Höhenänderung. Die Abwurfhöhe ist der höchste Punkt in den ersten 15 s. Sprünge über 60 m/s gelten als Sensor-Reset. «Ø Sinken gesamt» ist der Höhenverlust vom Gipfel bis zur Landung pro Sekunde; Steigzeit zählt die Sekunden mit mehr als 0,15 m/s Steigen nach dem Gipfel.</p>
     </details>
   </section>
 
@@ -592,8 +592,8 @@ function renderFlight(){
   $('next').textContent=S.sel<F.length-1?`Flug ${S.sel+2} ›`:'Nächster ›';
   const st=(k,v)=>`<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`;
   $('stats').innerHTML=st('Abwurfhöhe (15 s)',f1(f.launchH,1)+' m')+st('Maximum',f1(f.maxH,1)+' m')+st('Zeit bis Gipfel',f1(f.tMaxS,1)+' s')+
-    st('Sink netto',f1(f.netSink,2)+' m/s')+st('Sink im Sinkflug',f1(f.sinkAvg,2)+' m/s')+st('Stärkstes Sinken',f1(f.maxSink,2)+' m/s')+
-    st('Steigzeit',fmtDur(f.liftS))+st('Stärkstes Steigen',f1(f.maxClimb,2)+' m/s')+(f.open?st('Hinweis','Log endete im Flug'):'');
+    st('Ø Sinken gesamt',f1(f.netSink,2)+' m/s')+st('Ø Sinken pur',f1(f.sinkAvg,2)+' m/s')+st('Stärkstes Sinken',f1(f.maxSink,2)+' m/s')+
+    st('Steigzeit',fmtDur(f.liftS)+' s')+st('Stärkstes Steigen',f1(f.maxClimb,2)+' m/s')+(f.open?st('Hinweis','Log endete im Flug'):'');
   drawFlight(f);
 }
 
