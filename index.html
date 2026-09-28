@@ -161,6 +161,9 @@ details.card summary{font-family:var(--font-d);font-weight:650;font-size:19px;cu
     <label class="btn fill" for="file" id="filebtn" role="button" tabindex="0">Datei öffnen …</label>
     <input id="file" type="file" accept=".csv,.CSV,.txt,text/csv,text/plain,text/comma-separated-values" hidden>
 
+    <label class="btn" for="filesTrend" id="trendbtn" role="button" tabindex="0">Sessions vergleichen …</label>
+    <input id="filesTrend" type="file" accept=".csv,.CSV,.txt,text/csv,text/plain,text/comma-separated-values" multiple hidden>
+
     <div class="card" id="democard" hidden>
       <div class="sect">Beispiele</div>
       <div class="list" id="demolist"></div>
@@ -198,6 +201,22 @@ details.card summary{font-family:var(--font-d);font-weight:650;font-size:19px;cu
       </div>
       <p class="note">Mit Flugtimer gilt: Der Flug läuft, solange der Ethos-Timer zählt, und endet, wenn er 2,5 s steht oder zurückgesetzt wird. Ohne Timer beginnt ein Flug, wenn die Höhe über den Boden steigt, und endet nach 4 s nahe am Boden oder nach 20 s praktisch ohne Höhenänderung. Die Abwurfhöhe ist der höchste Punkt in den ersten 15 s. Sprünge über 60 m/s gelten als Sensor-Reset. «Ø Sinken gesamt» ist der Höhenverlust vom Gipfel bis zur Landung pro Sekunde; Steigzeit zählt die Sekunden mit mehr als 0,15 m/s Steigen nach dem Gipfel.</p>
     </details>
+  </section>
+
+  <!-- Vergleich -->
+  <section id="v-trend" hidden>
+    <div style="margin-top:14px">
+      <h1>Sessions vergleichen</h1>
+      <div class="sub" id="trendinfo"></div>
+    </div>
+    <div class="card">
+      <div class="opts"><label>Kennzahl <select id="trendmetric"></select></label></div>
+      <div class="chart" id="trendchart"></div>
+    </div>
+    <div class="card">
+      <h2>Sessions</h2>
+      <div class="list" id="trendlist"></div>
+    </div>
   </section>
 
   <!-- Flug -->
@@ -458,13 +477,14 @@ function altSeries(t0,t1,ground){
 // ---------- Ansichten & Navigation ----------
 function showView(){
   const v=S.view;
-  $('v-home').hidden=v!=='home'; $('v-session').hidden=v!=='session'; $('v-flight').hidden=v!=='flight';
+  $('v-home').hidden=v!=='home'; $('v-session').hidden=v!=='session'; $('v-flight').hidden=v!=='flight'; $('v-trend').hidden=v!=='trend';
   $('flightbar').hidden=v!=='flight'; document.body.classList.toggle('hasbar',v==='flight');
   $('back').style.visibility=v==='home'?'hidden':'visible';
   $('backlbl').textContent=v==='flight'?'Session':'Sessions';
-  $('navtitle').textContent=v==='home'?'Flugbuch':v==='session'?S.name:`Flug ${S.sel+1} von ${S.flights.length}`;
+  $('navtitle').textContent=v==='home'?'Flugbuch':v==='trend'?'Sessions vergleichen':v==='session'?S.name:`Flug ${S.sel+1} von ${S.flights.length}`;
   if(v==='session') renderSession();
   if(v==='flight') renderFlight();
+  if(v==='trend') renderTrend();
 }
 function go(v,opts){
   const same=S.view===v;
@@ -476,7 +496,7 @@ function go(v,opts){
 window.addEventListener('popstate',e=>{
   const st=e.state; let v=(st&&st.v)||'home';
   if(st&&st.sel!=null) S.sel=Math.min(st.sel,Math.max(0,S.flights.length-1));
-  if(v!=='home'&&!S.rows.length) v='home';
+  if(v!=='home'&&v!=='trend'&&!S.rows.length) v='home';
   if(v==='flight'&&!S.flights.length) v='session';
   S.view=v; showView(); window.scrollTo(0,0);
 });
@@ -591,7 +611,7 @@ function renderFlight(){
   $('prev').textContent=S.sel>0?`‹ Flug ${S.sel}`:'‹ Voriger';
   $('next').textContent=S.sel<F.length-1?`Flug ${S.sel+2} ›`:'Nächster ›';
   const st=(k,v)=>`<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`;
-  $('stats').innerHTML=st('Abwurfhöhe (15 s)',f1(f.launchH,1)+' m')+st('Maximum',f1(f.maxH,1)+' m')+st('Zeit bis Gipfel',f1(f.tMaxS,1)+' s')+
+  $('stats').innerHTML=st('Abwurfhöhe (15 s)',f1(f.launchH,1)+' m')+st('Maximum',f1(f.maxH,1)+' m')+st('Zeit bis Gipfel',fmtDur(f.tMaxS))+
     st('Ø Sinken gesamt',f1(f.netSink,2)+' m/s')+st('Ø Sinken pur',f1(f.sinkAvg,2)+' m/s')+st('Stärkstes Sinken',f1(f.maxSink,2)+' m/s')+
     st('Steigzeit',fmtDur(f.liftS)+' s')+st('Stärkstes Steigen',f1(f.maxClimb,2)+' m/s')+(f.open?st('Hinweis','Log endete im Flug'):'');
   drawFlight(f);
@@ -684,6 +704,92 @@ function load(text,name){
 }
 $('file').addEventListener('change',e=>{ const f=e.target.files[0]; if(f){ toast('Lese Datei …',0); f.text().then(t=>load(t,f.name)).catch(()=>{ unToast(); toast('Datei nicht lesbar'); }); } e.target.value=''; });
 $('filebtn').addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); $('file').click(); } });
+
+// ---------- Sessions vergleichen (Trend über mehrere Logs) ----------
+let TS=[]; // [{name,date,text,summary}]
+let trendKey='avgPure';
+function summarizeSession(flights){
+  const durs=flights.map(f=>f.dur), n=flights.length, tot=durs.reduce((a,b)=>a+b,0);
+  const best=n?Math.max(...durs):0;
+  const avgL=n?flights.reduce((a,f)=>a+f.launchH,0)/n:0;
+  const avgNet=n?flights.reduce((a,f)=>a+f.netSink,0)/n:0;
+  const avgPure=n?flights.reduce((a,f)=>a+f.sinkAvg,0)/n:0;
+  return {n,tot,best,avgL,avgNet,avgPure};
+}
+const TREND_METRICS={
+  avgPure:{label:'Ø Sinken pur',    dir:'min', get:s=>s.avgPure, fmt:v=>f1(v,2)+' m/s'},
+  avgNet: {label:'Ø Sinken gesamt', dir:'min', get:s=>s.avgNet,  fmt:v=>f1(v,2)+' m/s'},
+  best:   {label:'Bester Flug',     dir:'max', get:s=>s.best,    fmt:v=>fmtDur(v)},
+  tot:    {label:'Gesamtzeit',      dir:'max', get:s=>s.tot,     fmt:v=>fmtDur(v)},
+  n:      {label:'Anzahl Flüge',    dir:'max', get:s=>s.n,       fmt:v=>String(v)},
+  avgL:   {label:'Ø Abwurfhöhe',    dir:'max', get:s=>s.avgL,    fmt:v=>f1(v,0)+' m'},
+};
+async function loadTrendFiles(files){
+  if(!files.length) return;
+  toast('Lese Dateien …',0);
+  const items=[];
+  for(const f of files){
+    try{
+      const text=await f.text();
+      const P=parseLog(text);
+      if(!P.rows.length) continue;
+      const alt=pickAlt(P.ch), tim=pickTimer(P.ch);
+      if(alt<0) continue;
+      const r=detectFlights(P.rows,alt,{start:3,end:2,tim});
+      if(!r.flights.length) continue;
+      items.push({name:f.name.replace(/\.csv$/i,''),date:P.date||'',text,summary:summarizeSession(r.flights)});
+    }catch(e){}
+  }
+  unToast();
+  if(!items.length){ toast('Keine auswertbaren Logs dabei.',2200); return; }
+  items.sort((a,b)=>(a.date||'').localeCompare(b.date||'')||a.name.localeCompare(b.name));
+  TS=items;
+  go('trend');
+}
+$('filesTrend').addEventListener('change',e=>{ const files=[...e.target.files]; e.target.value=''; loadTrendFiles(files); });
+$('trendbtn').addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); $('filesTrend').click(); } });
+function renderTrend(){
+  const sel=$('trendmetric');
+  if(!sel.options.length){
+    sel.innerHTML=Object.entries(TREND_METRICS).map(([k,m])=>`<option value="${k}">${esc(m.label)}</option>`).join('');
+    sel.value=trendKey;
+    sel.addEventListener('change',()=>{ trendKey=sel.value; drawTrendChart(); renderTrendList(); });
+  }
+  $('trendinfo').textContent=`${TS.length} Session${TS.length===1?'':'s'}`;
+  drawTrendChart();
+  renderTrendList();
+}
+function drawTrendChart(){
+  const box=$('trendchart'), m=TREND_METRICS[trendKey];
+  if(!TS.length){ box.innerHTML='<p class="note">Keine Sessions geladen.</p>'; return; }
+  const vals=TS.map(s=>m.get(s.summary));
+  const W=Math.max(260,box.clientWidth||320),H=180,L=34,R=6,T=10,B=32, pw=W-L-R, ph=H-T-B;
+  let vmax=Math.max(0.001,...vals), vmin=Math.min(0,...vals);
+  vmax*=1.15;
+  const n=vals.length, gap=pw/n, bw=Math.max(6,Math.min(46,gap*0.62));
+  const Y=v=>T+ph-(v-vmin)/(vmax-vmin)*ph, y0=Y(0);
+  const bestV=m.dir==='min'?Math.min(...vals):Math.max(...vals);
+  const yst=niceStep(vmax-vmin,4), yd=yst<1?1:0;
+  let g='';
+  for(let v=Math.ceil(vmin/yst-1e-9)*yst; v<=vmax+1e-9; v+=yst){ g+=`<line x1="${L}" x2="${W-R}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)"/><text x="${L-5}" y="${Y(v)+3.5}" text-anchor="end">${yd?f1(v,1):Math.round(v)}</text>`; }
+  let bars='';
+  TS.forEach((s,i)=>{
+    const v=vals[i], x=L+gap*i+(gap-bw)/2, y=Math.min(Y(v),y0), h=Math.max(1,Math.abs(Y(v)-y0));
+    const isBest=n>1&&Math.abs(v-bestV)<1e-9;
+    bars+=`<g data-i="${i}" style="cursor:pointer"><rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="3" fill="${isBest?'var(--best)':'var(--alt)'}"/>${bw>=18?`<text class="lbl" x="${(x+bw/2).toFixed(1)}" y="${(v>=0?Y(v)-6:Y(v)+14).toFixed(1)}" text-anchor="middle">${esc(m.fmt(v))}</text>`:''}<text x="${(x+bw/2).toFixed(1)}" y="${H-6}" text-anchor="middle">${esc(fmtDateDE(s.date)||('#'+(i+1)))}</text><rect x="${x.toFixed(1)}" y="${T}" width="${bw.toFixed(1)}" height="${ph}" fill="transparent"/></g>`;
+  });
+  box.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(m.label)} pro Session">${g}<line x1="${L}" x2="${W-R}" y1="${y0}" y2="${y0}" stroke="var(--line)"/>${bars}</svg>`;
+  box.querySelectorAll('g[data-i]').forEach(el=>el.addEventListener('click',()=>openTrendSession(+el.dataset.i)));
+}
+function renderTrendList(){
+  const m=TREND_METRICS[trendKey];
+  $('trendlist').innerHTML=TS.map((s,i)=>`<button class="row" data-i="${i}" type="button"><span><span class="t">${esc(fmtDateDE(s.date)||s.name)}</span><br><span class="m">${esc(s.name)} · ${s.summary.n} Flüge · ${esc(m.fmt(m.get(s.summary)))}</span></span><span class="go">›</span></button>`).join('');
+  $('trendlist').onclick=e=>{ const b=e.target.closest('.row'); if(b) openTrendSession(+b.dataset.i); };
+}
+function openTrendSession(i){
+  const t=TS[i]; if(!t) return;
+  load(t.text,t.name);
+}
 $('chsel').addEventListener('change',e=>{ S.alt=+e.target.value; analyze(); });
 $('modesel').addEventListener('change',e=>{ S.tim=+e.target.value; analyze(); });
 $('thrStart').addEventListener('change',analyze); $('thrEnd').addEventListener('change',analyze);
