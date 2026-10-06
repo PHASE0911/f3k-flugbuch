@@ -157,7 +157,7 @@ details.card summary{font-family:var(--font-d);font-weight:650;font-size:19px;cu
 
     <div class="card" id="nodev">
       <div class="sect">CYD</div>
-      <p class="note" style="margin-top:0" id="nodevtxt">Kein CYD gefunden. Am iPhone im WLAN «CYD-Flightlog» anmelden (am CYD: WLAN, dann WLAN starten), dann diese Seite über http://192.168.4.1 öffnen. Oder eine CSV-Datei aus der Dateien-App laden.</p>
+      <p class="note" style="margin-top:0" id="nodevtxt">Kein CYD gefunden. Am iPhone im WLAN «CYD-Flightlog» anmelden (am CYD: WLAN, dann WLAN starten), dann diese Seite über http://192.168.44.1 öffnen. Oder eine CSV-Datei aus der Dateien-App laden.</p>
       <button class="btn" id="retry" type="button" hidden>Erneut suchen</button>
     </div>
 
@@ -877,7 +877,7 @@ function renderDevice(){
 }
 async function initDevice(){
   $('retry').hidden=true;
-  if(location.protocol!=='http:'){ $('nodevtxt').textContent='Eine CSV-Datei vom CYD öffnen (im WLAN «CYD-Flightlog» unter 192.168.4.1 herunterladen und in der Dateien-App ablegen) oder ein Beispiel ansehen. Direkt vom CYD geht es, wenn diese Seite über http://192.168.4.1 geöffnet wird.'; }
+  if(location.protocol!=='http:'){ $('nodevtxt').textContent='Eine CSV-Datei vom CYD öffnen (im WLAN «CYD-Flightlog» unter 192.168.44.1 herunterladen und in der Dateien-App ablegen) oder ein Beispiel ansehen. Direkt vom CYD geht es, wenn diese Seite über http://192.168.44.1 geöffnet wird.'; }
   DEV=await detectDevice();
   renderDevice();
   if(!DEV && location.protocol==='http:'){ $('retry').hidden=false; $('nodevtxt').textContent='Keine Antwort vom CYD. Läuft es im WLAN-Modus (Reiter WLAN, dann WLAN starten) und ist das iPhone mit «CYD-Flightlog» verbunden?'; }
