@@ -251,7 +251,7 @@ details.card summary{font-family:var(--font-d);font-weight:650;font-size:19px;cu
       <div class="chart" id="fchart"></div>
       <div class="legend">
         <span><i style="background:var(--alt)"></i>Höhe über Boden</span>
-        <span><i style="background:var(--lift)"></i>Steigen &gt; 0,15 m/s</span>
+        <span><i style="background:var(--lift)"></i>Steigen (Fläche: Steigphase ab 10 s)</span>
         <span><i style="background:var(--sink)"></i>Sinken</span>
         <span><i style="background:var(--ground)"></i>Start</span>
         <span><i style="background:var(--end)"></i>Landung</span>
@@ -525,6 +525,8 @@ function pickTimer(ch){
 
 // ---------- Helfer ----------
 const $ = id => document.getElementById(id);
+// Zeitangabe: unter 1 min als Sekunden mit Komma ("52,3 s"), sonst Minuten:Sekunden ("9:10 min")
+const fmtSec = (s,dec=1) => { const neg=s<0; s=Math.abs(s); if(s<60) return (neg?'−':'')+f1(s,dec)+' s'; const r=Math.round(s); return (neg?'−':'')+`${Math.floor(r/60)}:${String(r%60).padStart(2,'0')} min`; };
 const fmtDur = s => { s=Math.max(0,Math.round(s)); return s>=3600 ? `${Math.floor(s/3600)}:${String(Math.floor(s/60)%60).padStart(2,'0')}:${String(s%60).padStart(2,'0')}` : `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`; };
 const fmtClock = m => m>=0 ? `${String(Math.floor(m/60)%24).padStart(2,'0')}:${String(m%60).padStart(2,'0')}` : '–';
 const f1 = (v,d=1) => v.toFixed(d).replace('.',',');
@@ -696,7 +698,7 @@ function renderFlight(){
   const st=(k,v)=>`<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`;
   $('stats').innerHTML=st('Abwurfhöhe (15 s)',f1(f.launchH,1)+' m')+st('Maximum',f1(f.maxH,1)+' m')+st('Zeit bis Gipfel',fmtDur(f.tMaxS))+
     st('Ø Sinken gesamt',f1(f.netSink,2)+' m/s')+st('Ø Sinken pur',f1(f.sinkAvg,2)+' m/s')+st('Stärkstes Sinken',f1(f.maxSink,2)+' m/s')+
-    st('Steigzeit',fmtDur(f.liftS)+' s')+st('Stärkstes Steigen',f1(f.maxClimb,2)+' m/s')+
+    st('Steigzeit',fmtSec(f.liftS,0))+st('Stärkstes Steigen',f1(f.maxClimb,2)+' m/s')+
     (f.startWind?st('Wind beim Start',(f.startWind[3]>=0&&isFinite(f.startWind[3])?compassLong(f.startWind[3]):'–')+`<div class="vs">${f1(f.startWind[1],1)} m/s${f.startWind[2]>f.startWind[1]+0.05?`, Böen ${f1(f.startWind[2],1)}`:''}</div>`):'')+
     (f.wind?st('Wind Ø',`${f1(f.wind.avg,1)} m/s`+(f.wind.dir!=null?` aus ${compass(f.wind.dir)} (${f.wind.dir}°)`:''))+st('Stärkste Böe',f1(f.wind.gust,1)+' m/s')+
       (f.wind.temp!=null?st('Temperatur',f1(f.wind.temp,1)+' °C'):''):'')+
@@ -725,7 +727,15 @@ function drawFlight(f){
   const tst=niceStep(span/1000,W<420?4:8);
   for(let s=0;s<=span/1000-4;s+=tst){ const x=X(f.t0+s*1000); g+=`<line x1="${x}" x2="${x}" y1="${T}" y2="${T+ph1}" stroke="var(--soft)"/><text x="${x}" y="${H-5}" text-anchor="middle">${fmtDur(s)}</text>`; }
   const tPk=f.t0+f.tMaxS*1000; let liftRects='';
-  for(let i=0;i<N;i++){ const t=t0+i*dt; if(t>=tPk+2500 && t<=f.t1 && vs[i]>0.15) liftRects+=`<rect x="${X(t)}" y="${T}" width="${Math.max(1,pw*dt/span)}" height="${ph1}" fill="var(--lift)" opacity=".13"/>`; }
+  // Steigphasen als Flaechen (Thermik): mittleres Steigen ueber 10 s (+-5 s) > 0,2 m/s, ab Ende des Abwurfs
+  // (15 s); Unterbrechungen unter 8 s werden ueberbrueckt, markiert werden nur Phasen ab 10 s Dauer.
+  { const MERGE=8000, MIN=10000, K=Math.max(1,Math.round(5000/dt)), tFrom=f.t0+LAUNCH_WIN; let segs=[], cur=null;
+    for(let i=0;i<N;i++){ const t=t0+i*dt; if(t<tFrom||t>f.t1) continue;
+      const lo=Math.max(0,i-K), hi=Math.min(N-1,i+K); const c=(a[hi]-a[lo])/((hi-lo)*dt/1000||1);
+      if(c>0.2){ if(cur && t-cur[1]<=MERGE) cur[1]=t; else { if(cur) segs.push(cur); cur=[t,t]; } } }
+    if(cur) segs.push(cur);
+    for(const [a0,a1] of segs){ if(a1-a0<MIN) continue;
+      liftRects+=`<rect x="${X(a0).toFixed(1)}" y="${T}" width="${Math.max(1,X(a1)-X(a0)).toFixed(1)}" height="${ph1}" fill="var(--lift)" opacity=".16"/>`; } }
   let d=''; for(let i=0;i<N;i++) d+=`${i?'L':'M'}${X(t0+i*dt).toFixed(1)},${Y1(a[i]).toFixed(1)}`;
   const area=`${d}L${X(t0+(N-1)*dt)},${Y1(0)}L${X(t0)},${Y1(0)}Z`;
   let bars=''; const bw=Math.max(1,pw*dt/span);
@@ -740,7 +750,7 @@ function drawFlight(f){
     <circle cx="${xp}" cy="${Y1(f.maxH)}" r="4" fill="var(--peak)" stroke="var(--panel)" stroke-width="1.5"/><text x="${Math.min(xp+8,W-56)}" y="${Y1(f.maxH)-7}">${f1(f.maxH,1)} m</text>`;
   box.innerHTML=`<svg viewBox="0 0 ${W} ${H}" id="fsvg" role="img" aria-label="Höhe und Vario des ausgewählten Fluges">${g}${liftRects}<path d="${area}" fill="var(--altfill)"/><path d="${d}" fill="none" stroke="var(--alt)" stroke-width="1.8" stroke-linejoin="round"/>${vg}${bars}${marks}<line id="cur" x1="0" x2="0" y1="${T}" y2="${T+ph1+gap+ph2}" stroke="var(--ink)" stroke-width="1" opacity="0"/></svg>`;
   const svg=$('fsvg'), cur=$('cur'), ro=$('readout');
-  const idle=()=>{ cur.setAttribute('opacity','0'); ro.innerHTML=`<i>Gipfel</i> ${f1(f.maxH,1)} m nach ${f1(f.tMaxS,1)} s`; };
+  const idle=()=>{ cur.setAttribute('opacity','0'); ro.innerHTML=`<i>Gipfel</i> ${f1(f.maxH,1)} m nach ${fmtSec(f.tMaxS)}`; };
   idle();
   const move=ev=>{
     const r=svg.getBoundingClientRect(); const px=(ev.clientX-r.left)/r.width*W;
@@ -748,7 +758,7 @@ function drawFlight(f){
     const t=t0+(px-L)/pw*span, i=Math.max(0,Math.min(N-1,Math.round((t-t0)/dt)));
     const x=X(t0+i*dt); cur.setAttribute('x1',x); cur.setAttribute('x2',x); cur.setAttribute('opacity','.55');
     const ts=(t0+i*dt-f.t0)/1000;
-    ro.innerHTML=`<i>t</i> ${ts>=0?'+':''}${f1(ts,1)} s &nbsp;<i>Höhe</i> ${f1(a[i],1)} m &nbsp;<i>Vario</i> ${vs[i]>0?'+':''}${f1(vs[i],2)}`;
+    ro.innerHTML=`<i>t</i> ${ts>=0?'+':''}${fmtSec(ts)} &nbsp;<i>Höhe</i> ${f1(a[i],1)} m &nbsp;<i>Vario</i> ${vs[i]>0?'+':''}${f1(vs[i],2)}`;
   };
   svg.addEventListener('pointerdown',move); svg.addEventListener('pointermove',move);
   svg.addEventListener('dblclick',idle);
