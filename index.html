@@ -101,7 +101,7 @@ h2{font-size:19px}
 .chart svg{display:block;width:100%;height:auto;overflow:visible}
 svg text{font-family:var(--font-m);font-size:10px;fill:var(--muted)}
 svg .lbl{font-family:var(--font-d);font-size:12px;font-weight:700;fill:var(--ink)}
-#fchart svg{touch-action:pan-y;user-select:none;-webkit-user-select:none}
+#fchart svg,#wchart svg{touch-action:pan-y;user-select:none;-webkit-user-select:none}
 .legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:13px;color:var(--muted);margin-top:8px}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
 .readout{font:500 14px var(--font-m);color:var(--ink);min-height:20px;margin:2px 0 6px;font-variant-numeric:tabular-nums}
@@ -261,6 +261,7 @@ details.card summary{font-family:var(--font-d);font-weight:650;font-size:19px;cu
     <div class="card" id="windCard" hidden>
       <h2>Wind (Flugplatz-Station)</h2>
       <div class="wsum" id="wsum"></div>
+      <div class="readout" id="wreadout"></div>
       <div class="chart" id="wchart"></div>
       <div class="legend">
         <span><i style="background:var(--alt2)"></i>Wind</span>
@@ -846,7 +847,37 @@ function drawWind(f){
   box.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Wind während des Fluges"><defs>`+
     `<clipPath id="${cid}"><rect x="${L}" y="0" width="${pw}" height="${H}"/></clipPath>`+
     `<pattern id="whatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="none"/><line x1="0" y1="0" x2="0" y2="6" stroke="var(--line)" stroke-width="2.5"/></pattern></defs>`+
-    `${g}${gaps}${marks}<g clip-path="url(#${cid})">${lines}${dots}</g>${arr}<text x="${L-5}" y="${T-12}" text-anchor="end">m/s</text></svg>`;
+    `${g}${gaps}${marks}<g clip-path="url(#${cid})">${lines}${dots}</g>${arr}<text x="${L-5}" y="${T-12}" text-anchor="end">m/s</text>`+
+    `<line id="wcur" x1="0" x2="0" y1="${T}" y2="${T+ph}" stroke="var(--ink)" stroke-width="1" opacity="0"/>`+
+    `<circle id="wdot" r="4.5" fill="var(--alt2)" stroke="var(--panel)" stroke-width="1.5" opacity="0"/>`+
+    `<circle id="wdotg" r="3.5" fill="var(--peak)" stroke="var(--panel)" stroke-width="1.2" opacity="0"/>`+
+    `<rect id="whit" x="${L}" y="0" width="${pw}" height="${H}" fill="transparent" style="cursor:crosshair"/></svg>`;
+  // Ablesen: Maus darueber bewegen bzw. mit dem Finger wischen -> naechster Messwert (max. 6 s entfernt)
+  const ro=$('wreadout'), svg=box.querySelector('svg'), wc=$('wcur'), dot=$('wdot'), dotg=$('wdotg');
+  const idle=()=>{ wc.setAttribute('opacity','0'); dot.setAttribute('opacity','0'); dotg.setAttribute('opacity','0');
+    ro.innerHTML='<i>Über die Kurve fahren, um Werte abzulesen</i>'; };
+  idle();
+  if(!visible.length) return;
+  const move=ev=>{
+    const r=svg.getBoundingClientRect(); const px=(ev.clientX-r.left)/r.width*W;
+    if(px<L||px>W-R){ idle(); return; }
+    const t=t0+(px-L)/pw*span;
+    let best=null, bd=1e12; for(const p of visible){ const d=Math.abs(p[0]-t); if(d<bd){ bd=d; best=p; } }
+    if(!best || bd>6000){
+      wc.setAttribute('x1',px); wc.setAttribute('x2',px); wc.setAttribute('opacity','.35');
+      dot.setAttribute('opacity','0'); dotg.setAttribute('opacity','0');
+      ro.innerHTML=`<i>t</i> ${t>=f.t0?"+":""}${fmtSec((t-f.t0)/1000)} &nbsp;<i>keine Daten</i>`; return;
+    }
+    const x=X(best[0]);
+    wc.setAttribute('x1',x); wc.setAttribute('x2',x); wc.setAttribute('opacity','.55');
+    dot.setAttribute('cx',x); dot.setAttribute('cy',Y(best[1])); dot.setAttribute('opacity','1');
+    dotg.setAttribute('cx',x); dotg.setAttribute('cy',Y(best[2])); dotg.setAttribute('opacity','1');
+    const ts=(best[0]-f.t0)/1000, dir=best[3], tc=best[4];
+    ro.innerHTML=`<i>t</i> ${ts>=0?'+':''}${fmtSec(ts)} &nbsp;<i>Wind</i> ${f1(best[1],1)} &nbsp;<i>Böe</i> ${f1(best[2],1)} m/s`+
+      (isFinite(dir)&&dir>=0?` &nbsp;<i>aus</i> ${compass(dir)} ${Math.round(dir)}°`:'')+(isFinite(tc)&&tc>-90?` &nbsp;${f1(tc,1)} °C`:'');
+  };
+  svg.addEventListener('pointermove',move); svg.addEventListener('pointerdown',move);
+  svg.addEventListener('pointerleave',idle);
 }
 
 // Wischen zwischen Fluegen (Kopfbereich)
